@@ -20,4 +20,9 @@ void main() async {
     final str = await rda.asString(doc);
     expect(str.length, 11034);
   });
+  test('context titles', () async {
+    final titles = await rda.context(doc);
+    print(titles);
+    expect(titles.length, 5);
+  });
 }

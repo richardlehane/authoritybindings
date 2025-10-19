@@ -1,3 +1,6 @@
+test:
+flutter test test/authority_test.dart
+
 # authority
 
 A new Flutter FFI plugin project.

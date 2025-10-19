@@ -4,8 +4,15 @@ import 'dart:ffi';
 import 'package:ffi/ffi.dart';
 import 'dart:io' show Directory;
 import 'package:path/path.dart' as path;
+import 'context.dart';
 
 final libraryPath = path.join(Directory.current.path, 'authority.dll');
+
+final class Payload extends Struct {
+  @Int32()
+  external int length;
+  external Pointer<Uint8> data;
+}
 
 typedef LoadDocNative = Uint8 Function(Pointer<Utf8>);
 typedef LoadDoc = int Function(Pointer<Utf8>);
@@ -15,6 +22,8 @@ typedef AsStringNative = Pointer<Utf8> Function(Uint8);
 typedef AsString = Pointer<Utf8> Function(int);
 typedef FreeStringNative = Void Function(Pointer<Utf8>);
 typedef FreeString = void Function(Pointer<Utf8>);
+typedef ContextTitlesNative = Payload Function(Uint8);
+typedef ContextTitles = Payload Function(int);
 
 class RDA {
   final Future<SendPort> futureSendPort = _helperIsolateSendPort;
@@ -49,6 +58,15 @@ class RDA {
     final int requestId = _nextRequestId++;
     final _AsStringRequest request = _AsStringRequest(requestId, index);
     final Completer<String> completer = Completer<String>();
+    _Requests[requestId] = completer;
+    helperIsolateSendPort?.send(request);
+    return completer.future;
+  }
+
+  Future<List<String>> context(int index) async {
+    final int requestId = _nextRequestId++;
+    final _ContextRequest request = _ContextRequest(requestId, index);
+    final Completer<List<String>> completer = Completer<List<String>>();
     _Requests[requestId] = completer;
     helperIsolateSendPort?.send(request);
     return completer.future;
@@ -91,6 +109,18 @@ class _AsStringResponse {
   const _AsStringResponse(this.id, this.result);
 }
 
+class _ContextRequest {
+  final int id;
+  final int idx;
+  const _ContextRequest(this.id, this.idx);
+}
+
+class _ContextResponse {
+  final int id;
+  final List<String> result;
+  const _ContextResponse(this.id, this.result);
+}
+
 int _nextRequestId = 0;
 
 /// Mapping from [_SumRequest] `id`s to the completers corresponding to the correct future of the pending request.
@@ -117,6 +147,7 @@ Future<SendPort> _helperIsolateSendPort = () async {
           case _LoadResponse:
           case _ValidResponse:
           case _AsStringResponse:
+          case _ContextResponse:
             final Completer completer = _Requests[data.id]!;
             _Requests.remove(data.id);
             completer.complete(data.result);
@@ -142,6 +173,8 @@ Future<SendPort> _helperIsolateSendPort = () async {
     );
     final FreeString _freeString = _dylib
         .lookupFunction<FreeStringNative, FreeString>('freeStr');
+    final ContextTitles _contextTitles = _dylib
+        .lookupFunction<ContextTitlesNative, ContextTitles>('context');
 
     final ReceivePort helperReceivePort =
         ReceivePort()..listen((dynamic data) {
@@ -165,6 +198,17 @@ Future<SendPort> _helperIsolateSendPort = () async {
               final message = messageUtf8.toDartString();
               _freeString(messageUtf8);
               final _AsStringResponse response = _AsStringResponse(
+                data.id,
+                message,
+              );
+              sendPort.send(response);
+              return;
+            case _ContextRequest:
+              final payload = _contextTitles(data.idx);
+              final message = AsContext(
+                payload.data.asTypedList(payload.length),
+              );
+              final _ContextResponse response = _ContextResponse(
                 data.id,
                 message,
               );
